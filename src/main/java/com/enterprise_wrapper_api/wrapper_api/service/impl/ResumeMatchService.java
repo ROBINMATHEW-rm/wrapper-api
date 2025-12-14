@@ -1,16 +1,16 @@
-
 package com.enterprise_wrapper_api.wrapper_api.service.impl;
 
 import com.enterprise_wrapper_api.wrapper_api.model.ResumeMatchRequest;
 import com.enterprise_wrapper_api.wrapper_api.model.ResumeMatchResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -18,85 +18,80 @@ import java.util.Map;
 public class ResumeMatchService {
 
     private final WebClient webClient;
+    private final ObjectMapper objectMapper;
 
     public ResumeMatchService(
             WebClient.Builder builder,
-            @Value("${openrouter.api.url}") String openRouterUrl,
-            @Value("${openrouter.api.key}") String apiKey
+            @Value("${groq.api.url}") String groqUrl,
+            @Value("${groq.api.key}") String apiKey,
+            ObjectMapper objectMapper
     ) {
         this.webClient = builder
-                .baseUrl(openRouterUrl)
+                .baseUrl(groqUrl)
                 .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("HTTP-Referer", "http://localhost:8081") // optional but recommended
-                .defaultHeader("X-Title", "ResumeMatchWrapperAPI") // identifies your app on OpenRouter dashboard
+                .defaultHeader("Content-Type", "application/json")
                 .build();
+        this.objectMapper = objectMapper;
     }
 
     public ResumeMatchResponse getMatch(ResumeMatchRequest request) {
+        String prompt = """
+                Compare the resume with the job description.
+                Respond ONLY in valid JSON:
+                {
+                  "matchScore": number between 0 and 100,
+                  "missingSkills": ["skill1", "skill2"],
+                  "summary": "2 sentences"
+                }
+
+                Resume:
+                %s
+
+                Job Description:
+                %s
+                """.formatted(request.getResumeText(), request.getJobDescription());
+
+        Map<String, Object> body = Map.of(
+                "model", "llama-3.1-8b-instant",
+                "messages", List.of(Map.of("role", "user", "content", prompt)),
+                "temperature", 0.2,
+                "max_tokens", 500,
+                "response_format", Map.of("type", "json_object")
+        );
 
         try {
-            // ✅ Build AI prompt
-            String prompt = """
-                    Compare the following resume text with the job description.
-                    Return a JSON with:
-                    {
-                      "matchScore": number between 0 and 100,
-                      "missingSkills": ["skill1", "skill2", ...],
-                      "summary": "2 sentences summary of fit"
-                    }
-
-                    Resume:
-                    %s
-
-                    Job Description:
-                    %s
-                    """.formatted(request.getResumeText(), request.getJobDescription());
-
-            // ✅ Request body for OpenRouter
-            Map<String, Object> body = Map.of(
-                    "model", "openai/gpt-4o-mini", // you can try "mistralai/mixtral-8x7b" (free tier)
-                    "messages", List.of(Map.of("role", "user", "content", prompt))
-            );
-
-            // ✅ Call OpenRouter API with retry policy
             Map<String, Object> response = webClient.post()
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(Map.class)
-                    .retryWhen(
-                            Retry.backoff(3, Duration.ofSeconds(5))
-                                    .filter(ex -> ex instanceof WebClientResponseException.TooManyRequests)
-                    )
+                    .timeout(Duration.ofSeconds(30))
                     .block();
 
-            // ✅ Extract the assistant message content
             List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
             Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
             String content = (String) message.get("content");
 
-            return new ResumeMatchResponse(0, List.of(), content);
+            // ✅ Parse JSON string returned by the model into ResumeMatchResponse
+            Map<String, Object> jsonResponse = objectMapper.readValue(content, Map.class);
 
-        } catch (WebClientResponseException.TooManyRequests e) {
-            return new ResumeMatchResponse(
-                    0,
-                    List.of(),
-                    "⚠️ OpenRouter rate limit reached. Try again later."
-            );
+            int matchScore = (int) (jsonResponse.getOrDefault("matchScore", 0));
+            List<String> missingSkills = (List<String>) jsonResponse.getOrDefault("missingSkills", Collections.emptyList());
+            String summary = (String) jsonResponse.getOrDefault("summary", "");
+
+            return new ResumeMatchResponse(matchScore, missingSkills, summary);
 
         } catch (WebClientResponseException e) {
             return new ResumeMatchResponse(
                     0,
-                    List.of(),
-                    "❌ OpenRouter API error: " + e.getStatusCode()
+                    Collections.emptyList(),
+                    "GROQ ERROR: " + e.getResponseBodyAsString()
             );
-
         } catch (Exception e) {
-            // ✅ Fallback mock (local)
             return new ResumeMatchResponse(
-                    85,
-                    List.of("Docker", "Kubernetes"),
-                    "✅ Mock response: Resume fits 85% of job requirements."
+                    0,
+                    Collections.emptyList(),
+                    "ERROR: " + e.getMessage()
             );
         }
     }
