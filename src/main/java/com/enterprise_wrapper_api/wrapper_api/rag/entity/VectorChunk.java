@@ -1,6 +1,5 @@
 package com.enterprise_wrapper_api.wrapper_api.rag.entity;
 
-import com.pgvector.PGvector;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -29,8 +28,8 @@ public class VectorChunk {
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
-    @Column(name = "embedding", columnDefinition = "vector(768)", nullable = false)
-    private PGvector embedding;
+    @Column(name = "embedding", columnDefinition = "vector(384)", nullable = false)
+    private String embedding;
 
     @Column(name = "chunk_index", nullable = false)
     private Integer chunkIndex;

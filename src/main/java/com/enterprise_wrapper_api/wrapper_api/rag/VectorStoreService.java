@@ -4,10 +4,11 @@ import com.enterprise_wrapper_api.wrapper_api.rag.entity.Document;
 import com.enterprise_wrapper_api.wrapper_api.rag.entity.VectorChunk;
 import com.enterprise_wrapper_api.wrapper_api.rag.repository.DocumentRepository;
 import com.enterprise_wrapper_api.wrapper_api.rag.repository.VectorChunkRepository;
-import com.pgvector.PGvector;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -17,11 +18,14 @@ public class VectorStoreService {
     private static final double DEFAULT_SIMILARITY_THRESHOLD = 0.3;
     private final DocumentRepository documentRepository;
     private final VectorChunkRepository vectorChunkRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public VectorStoreService(DocumentRepository documentRepository,
-                              VectorChunkRepository vectorChunkRepository) {
+                              VectorChunkRepository vectorChunkRepository,
+                              JdbcTemplate jdbcTemplate) {
         this.documentRepository = documentRepository;
         this.vectorChunkRepository = vectorChunkRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     private static class ScoredResult {
@@ -68,13 +72,14 @@ public class VectorStoreService {
         Document document = documentRepository.findByDocumentId(documentId)
                 .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
 
-        VectorChunk chunk = new VectorChunk();
-        chunk.setDocument(document);
-        chunk.setContent(content);
-        chunk.setEmbedding(new PGvector(convertToFloatArray(embedding)));
-        chunk.setChunkIndex(chunkIndex);
-
-        vectorChunkRepository.save(chunk);
+        String vectorString = convertToVectorString(embedding);
+        LocalDateTime now = LocalDateTime.now();
+        
+        // Use native SQL with CAST to properly insert vector
+        String sql = "INSERT INTO vector_chunks (chunk_index, content, created_at, document_id, embedding) " +
+                     "VALUES (?, ?, ?, ?, CAST(? AS vector))";
+        
+        jdbcTemplate.update(sql, chunkIndex, content, now, documentId, vectorString);
 
         // Update chunk count
         document.setChunkCount(document.getChunkCount() + 1);
@@ -109,7 +114,7 @@ public class VectorStoreService {
         // Calculate actual similarity scores and filter by threshold
         List<ScoredResult> scoredResults = chunks.stream()
                 .map(chunk -> {
-                    List<Double> chunkEmbedding = convertToDoubleList(chunk.getEmbedding());
+                    List<Double> chunkEmbedding = parseVectorString(chunk.getEmbedding());
                     double similarity = cosineSimilarity(queryEmbedding, chunkEmbedding);
                     return new ScoredResult(chunk.getContent(), similarity);
                 })
@@ -175,11 +180,13 @@ public class VectorStoreService {
         return result;
     }
 
-    private List<Double> convertToDoubleList(PGvector pgvector) {
-        float[] floats = pgvector.toArray();
-        List<Double> result = new ArrayList<>(floats.length);
-        for (float f : floats) {
-            result.add((double) f);
+    private List<Double> parseVectorString(String vectorString) {
+        // Parse "[1.0,2.0,3.0]" format
+        String cleaned = vectorString.replace("[", "").replace("]", "");
+        String[] parts = cleaned.split(",");
+        List<Double> result = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            result.add(Double.parseDouble(part.trim()));
         }
         return result;
     }

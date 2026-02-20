@@ -89,9 +89,19 @@ public class RagService {
 
             // Build context from retrieved chunks
             String context = String.join("\n\n", relevantChunks);
+            
+            System.out.println("=== DEBUG: Retrieved Context ===");
+            System.out.println("Number of chunks: " + relevantChunks.size());
+            System.out.println("Context length: " + context.length());
+            System.out.println("Context preview: " + context.substring(0, Math.min(200, context.length())));
+            System.out.println("================================");
 
             // Build prompt for LLM
             String prompt = buildPrompt(question, context);
+            
+            System.out.println("=== DEBUG: Prompt ===");
+            System.out.println(prompt.substring(0, Math.min(500, prompt.length())));
+            System.out.println("=====================");
 
             // Generate answer using LLM
             return llamaClient.generateAnswer(prompt);
