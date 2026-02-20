@@ -1,0 +1,240 @@
+Good. Let’s define the **exact workflow of your application** clearly and structurally — no hand-waving.
+
+I’ll split it into two flows:
+
+1️⃣ **PDF Upload Workflow (Ingestion)**
+2️⃣ **Question Workflow (Retrieval + Generation)**
+
+---
+
+# 🔵 1️⃣ PDF Upload Workflow (Ingestion Phase)
+
+This happens when you call:
+
+```
+POST /rag/upload
+```
+
+## Step-by-Step Execution
+
+### Step 1 — Controller Layer
+
+`RagController`
+
+* Receives PDF file
+* Calls `RagService.processPdf(file)`
+
+---
+
+### Step 2 — Extract Text
+
+`PdfService`
+
+* Reads PDF
+* Extracts full text
+* Returns plain string
+
+Now you have:
+
+```
+Raw document text
+```
+
+---
+
+### Step 3 — Chunk the Text
+
+`TextChunkService`
+
+* Splits large text into smaller chunks
+* Example: 500 characters per chunk
+
+Why?
+LLMs and embeddings work better on smaller pieces.
+
+Now you have:
+
+```
+Chunk 1
+Chunk 2
+Chunk 3
+...
+```
+
+---
+
+### Step 4 — Generate Embeddings
+
+`EmbeddingService`
+
+For each chunk:
+
+* Convert text → float[768] vector
+
+Now each chunk becomes:
+
+```
+{
+  content: "some paragraph text",
+  embedding: [0.234, 0.912, ...]
+}
+```
+
+---
+
+### Step 5 — Store in Vector Store
+
+`VectorStoreService`
+
+* Stores (content + embedding) in memory
+
+Now your in-memory vector DB contains:
+
+```
+List<VectorEntry>
+```
+
+At this point:
+✅ PDF is indexed
+❌ No LLM used yet
+
+Upload flow ends here.
+
+---
+
+# 🔴 2️⃣ Question Workflow (Retrieval + Generation Phase)
+
+This happens when you call:
+
+```
+POST /rag/ask
+```
+
+---
+
+## Step-by-Step Execution
+
+### Step 1 — Controller
+
+`RagController`
+
+* Receives user question
+* Calls `RagService.ask(question)`
+
+---
+
+### Step 2 — Convert Question to Embedding
+
+`EmbeddingService`
+
+```
+"What is the revenue?"
+→ float[768]
+```
+
+---
+
+### Step 3 — Search Vector Store
+
+`VectorStoreService.search(queryEmbedding, topK)`
+
+* Compare question vector with all stored vectors
+* Compute cosine similarity
+* Sort descending
+* Return top 3 most similar chunks
+
+This is pure math.
+
+Now you get:
+
+```
+Top 3 relevant text chunks
+```
+
+Still no LLM yet.
+
+---
+
+### Step 4 — Build Prompt
+
+`RagService`
+
+Creates:
+
+```
+Context:
+<chunk1>
+<chunk2>
+<chunk3>
+
+Question:
+<user question>
+
+Answer:
+```
+
+---
+
+### Step 5 — Call LLM
+
+`LlamaClient`
+
+* Sends prompt to Llama
+* LLM generates response
+
+This is the ONLY place where text generation happens.
+
+---
+
+### Step 6 — Return Response
+
+Controller sends LLM response back to user.
+
+---
+
+# 🔁 Full Workflow Summary
+
+## Upload Flow
+
+PDF
+→ Extract text
+→ Chunk
+→ Embed
+→ Store vectors
+
+---
+
+## Ask Flow
+
+Question
+→ Embed
+→ Similarity search
+→ Retrieve top chunks
+→ Build prompt
+→ LLM generates answer
+→ Return response
+
+---
+
+# 🔎 Important Observations
+
+✔ LLM is only used during question answering
+✔ Vector DB is only used during retrieval
+✔ Embeddings are used only for similarity math
+✔ The LLM never sees vectors
+
+---
+
+# 🧠 Final Conceptual Model
+
+You built:
+
+Search Engine (Vector DB)
++
+Context Builder
++
+LLM
+
+= RAG System
+
+---
