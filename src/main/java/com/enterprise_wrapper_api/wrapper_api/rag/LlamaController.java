@@ -15,7 +15,7 @@ public class LlamaController {
     @Autowired
     private LlamaClient llamaClient; // your existing wrapper
 
-    @PostMapping("/ask")
+    @PostMapping("/ask-simple")
     public ResponseEntity<String> askQuestion(@RequestBody String query) {
 
         // Step 1: Retrieve relevant PDF chunks

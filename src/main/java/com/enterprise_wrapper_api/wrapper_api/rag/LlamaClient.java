@@ -15,7 +15,7 @@ public class LlamaClient {
 
     public LlamaClient(
             WebClient.Builder builder,
-            @Value("${groq.api.url}") String groqUrl,
+            @Value("${groq.api.base-url}") String groqUrl,
             @Value("${groq.api.key}") String apiKey
     ) {
 
@@ -41,6 +41,7 @@ public class LlamaClient {
         );
 
         Map<String, Object> response = webClient.post()
+                .uri("/openai/v1/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body)
                 .retrieve()

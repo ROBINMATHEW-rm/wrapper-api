@@ -17,11 +17,20 @@ public class RetrieverService {
     }
 
     public List<String> retrieveRelevantDocs(String query, int topK) {
+        return retrieveRelevantDocs(query, topK, null, null);
+    }
 
-        // Generate embedding for query
+    public List<String> retrieveRelevantDocs(String query, int topK, String documentId) {
+        return retrieveRelevantDocs(query, topK, documentId, null);
+    }
+
+    public List<String> retrieveRelevantDocs(String query, int topK, String documentId, Double threshold) {
         List<Double> queryEmbedding = embeddingService.generateEmbedding(query);
-
-        // Search in-memory vector store
-        return vectorStoreService.search(queryEmbedding, topK);
+        
+        if (threshold != null) {
+            return vectorStoreService.search(queryEmbedding, topK, documentId, threshold);
+        } else {
+            return vectorStoreService.search(queryEmbedding, topK, documentId);
+        }
     }
 }
