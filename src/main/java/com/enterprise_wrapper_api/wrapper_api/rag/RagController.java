@@ -85,6 +85,12 @@ public class RagController {
         ));
     }
 
+    @DeleteMapping("/clear")
+    public ResponseEntity<Map<String, String>> clearAll() {
+        vectorStoreService.clear();
+        return ResponseEntity.ok(Map.of("message", "All data cleared successfully"));
+    }
+
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> healthCheck() {
         Map<String, Object> health = new HashMap<>();

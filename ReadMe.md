@@ -1,309 +1,362 @@
-# 🚀 Wrapper API – Resume AI & RAG-Based Document Assistant
+# RAG API — Document Intelligence System
 
-## 📌 Overview
-
-Wrapper API is a Spring Boot application that provides:
-
-1. Resume–Job Description matching using AI
-2. Retrieval-Augmented Generation (RAG) for PDF-based question answering with **PostgreSQL + pgvector**
-3. LLM integration (Llama-based via Groq)
-4. **Fast vector search with HNSW indexing (100x faster than traditional databases)**
-
-The project demonstrates clean architecture, production-ready RAG implementation, and AI-powered document processing.
+A production-ready **Retrieval-Augmented Generation (RAG)** API built with Spring Boot. Upload PDF documents and ask natural language questions — the system finds the most relevant content and generates accurate answers using AI.
 
 ---
 
-# 🧠 Core Features
-
-## 1️⃣ Resume Matching API
-- Accepts resume + job description
-- Uses AI to evaluate match quality
-- Returns structured match response
-
-## 2️⃣ RAG (Retrieval-Augmented Generation)
-- Upload PDF documents
-- Ask questions about uploaded documents
-- **Fast vector similarity search with pgvector**
-- Retrieves most relevant chunks using HNSW indexing
-- Generates AI-based contextual answers
-
----
-
-# 🏗️ Architecture Overview
-
-The application follows layered architecture:
+## How It Works
 
 ```
-Controller Layer
-⬇
-Service Layer
-⬇
-RAG Layer (Embedding + Vector Search + Retrieval)
-⬇
-PostgreSQL + pgvector (Vector Database)
-⬇
-LLM Client (Groq)
-⬇
-Response
+PDF Upload → Text Extraction → Chunking → Embedding (Ollama) → PostgreSQL + pgvector
+                                                                          ↓
+User Question → Embedding → Similarity Search → Top Chunks → Groq LLaMA → Answer
 ```
+
+1. You upload a PDF
+2. Text is extracted and split into overlapping chunks
+3. Each chunk is converted to a 768-dimensional vector using Ollama (`nomic-embed-text`)
+4. Vectors are stored in PostgreSQL with the pgvector extension
+5. When you ask a question, it's also embedded and compared against stored vectors using cosine similarity
+6. The most relevant chunks are passed to Groq's LLaMA model to generate a natural language answer
 
 ---
 
-# 🚀 Quick Start
+## Tech Stack
 
-See **QUICKSTART.md** for 5-minute setup guide!
+| Component | Technology |
+|-----------|-----------|
+| Framework | Spring Boot 3.5.7 |
+| Language | Java 17 |
+| Database | PostgreSQL 16 + pgvector |
+| Embeddings | Ollama (`nomic-embed-text`, 768-dim) |
+| LLM | Groq API (`llama-3.1-8b-instant`) |
+| PDF Parsing | Apache PDFBox |
+| Containerization | Docker |
 
-**Docker (Easiest):**
-```bash
-# Start PostgreSQL with pgvector
-docker run -d --name rag-postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=rag_db \
-  -p 5432:5432 \
+---
+
+## Prerequisites
+
+- Java 17+
+- Maven 3.6+
+- Docker Desktop
+- Groq API Key (free at [console.groq.com](https://console.groq.com))
+
+---
+
+## Setup & Run
+
+### 1. Start PostgreSQL with pgvector
+
+```powershell
+docker run -d --name rag-postgres `
+  -e POSTGRES_PASSWORD=postgres `
+  -e POSTGRES_DB=rag_db `
+  -p 5432:5432 `
   pgvector/pgvector:pg16
 
-# Enable extension
-docker exec -it rag-postgres psql -U postgres -d rag_db -c "CREATE EXTENSION vector;"
+docker exec -it rag-postgres psql -U postgres -d rag_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
 
-# Set environment variables
-export DB_USERNAME=postgres
-export DB_PASSWORD=postgres
-export GROQ_API_KEY=your_key
-export GROQ_API_URL=https://api.groq.com/openai/v1
+### 2. Start Ollama with embedding model
 
-# Run application
+```powershell
+docker run -d --name ollama -p 11434:11434 ollama/ollama
+docker exec -it ollama ollama pull nomic-embed-text
+```
+
+### 3. Set environment variables
+
+```powershell
+$env:GROQ_API_KEY = "your_groq_api_key_here"
+```
+
+### 4. Run the application
+
+```powershell
 mvn spring-boot:run
 ```
 
----
-
-# 📂 Project Structure & Purpose
-
-## 🔹 `WrapperApiApplication`
-Main Spring Boot entry point.
+App starts at `http://localhost:8080`
 
 ---
 
-# 📁 Controller Layer
+## API Endpoints
 
-## 🔹 `MatchController`
-Handles resume matching endpoints.
+Base URL: `http://localhost:8080/api/rag`
 
-Purpose:
-- Accept ResumeMatchRequest
-- Call matching service
-- Return ResumeMatchResponse
+### Health Check
+```
+GET /health
+```
+Returns service status, total documents, and total chunks.
 
----
-
-## 🔹 `RagController`
-Handles:
-- `POST /upload`
-- `POST /ask`
-
-Responsible for RAG operations.
-
----
-
-## 🔹 `LlamaController`
-Handles direct interaction with LLM endpoints.
-
----
-
-# 📁 Model Layer
-
-## 🔹 `ResumeMatchRequest`
-Request DTO for resume matching.
-
-## 🔹 `ResumeMatchResponse`
-Structured AI response for match result.
-
----
-
-# 📁 Service Layer
-
-## 🔹 `AiMatcherService`
-Interface for resume matching logic.
-
-## 🔹 `ResumeMatchService` (impl)
-Implements matching workflow using AI.
-
----
-
-# 📁 RAG Module (`rag` package)
-
-This is the most architecturally important part - now with **PostgreSQL + pgvector**!
-
----
-
-## 🔹 `PdfService`
-- Extracts text from PDF
-- **Semantic chunking** with sentence boundaries
-- Intelligent overlap for context continuity
-
----
-
-## 🔹 `EmbeddingService`
-- Converts text into embedding vectors using **Groq API**
-- Uses `nomic-embed-text` model (768 dimensions)
-- Real semantic embeddings (not mock!)
-
----
-
-## 🔹 `VectorStoreService`
-**PostgreSQL + pgvector** vector database.
-
-Stores:
-- Text chunks
-- Embedding vectors (native vector type)
-- Document metadata
-
-Implements:
-- **HNSW indexing** for approximate nearest neighbor search
-- **Cosine similarity** using native pgvector operators
-- Top-K retrieval with similarity threshold
-
-Time Complexity:
-- **O(log n)** per query with HNSW index (vs O(n) linear scan)
-- **100x faster** than traditional databases!
-
----
-
-## 🔹 `VectorDatabaseClient`
-Abstraction layer for vector database operations.
-
-Currently:
-- PostgreSQL with pgvector
-- Native vector operations
-- HNSW/IVFFlat indexing support
-
----
-
-## 🔹 `RetrieverService`
-Handles:
-1. Convert query → embedding
-2. Search vector database using pgvector
-3. Return top-K relevant chunks with threshold filtering
-
-Separates retrieval logic from storage logic.
-
----
-
-## 🔹 `RagService`
-Orchestrates full RAG workflow:
-
-Upload Flow:
-- Extract text from PDF
-- Semantic chunking
-- Generate embeddings
-- Store in PostgreSQL
-
-Ask Flow:
-- Generate query embedding
-- Fast vector search with HNSW
-- Build context from top chunks
-- Call LLM for answer generation
-
-This is the core business orchestration layer.
-
----
-
-## 🔹 `LlamaClient`
-Responsible for communicating with LLM (Llama via Groq).
-
-Handles:
-- Prompt submission
-- Response parsing
-- Error handling
-
----
-
-# 🧮 Retrieval Logic
-
-The system uses **pgvector's native cosine distance operator** (`<=>`).
-
-PostgreSQL Query:
-```sql
-SELECT * FROM vector_chunks 
-ORDER BY embedding <=> query_vector 
-LIMIT k;
+**Response:**
+```json
+{
+  "status": "UP",
+  "service": "RAG Service",
+  "totalDocuments": 3,
+  "totalChunks": 87
+}
 ```
 
-With HNSW index, this is **O(log n)** instead of O(n)!
+---
+
+### Upload PDF
+```
+POST /upload
+Content-Type: multipart/form-data
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| file | File | Yes | PDF file (max 100MB) |
+
+**Response:**
+```json
+{
+  "message": "PDF processed successfully",
+  "documentId": "550e8400-e29b-41d4-a716-446655440000",
+  "filename": "report.pdf",
+  "chunkCount": 32
+}
+```
 
 ---
 
-# ⚙️ Current Implementation
+### Ask a Question
+```
+POST /ask
+```
 
-✅ **PostgreSQL + pgvector** - Production-ready vector database
-✅ **Real embeddings** via Groq API
-✅ **HNSW indexing** for fast approximate nearest neighbor search
-✅ **Multi-document support** with document isolation
-✅ **Semantic chunking** with sentence boundaries
-✅ **Similarity threshold filtering**
-✅ **Comprehensive error handling**
-✅ **Persistent storage** - data survives restarts!
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| question | String | Yes | — | Your question |
+| documentId | String | No | null (all docs) | Search in specific document |
+| topK | int | No | 3 | Number of chunks to retrieve |
+| threshold | double | No | 0.3 | Minimum similarity score (0.0–1.0) |
 
----
+**Example:**
+```
+POST /ask?question=What are the heart chambers?&topK=5&threshold=0.2
+```
 
-# 🚀 Performance
+**Response:**
+```json
+{
+  "question": "What are the heart chambers?",
+  "answer": "The heart has four chambers: the left atrium, right atrium, left ventricle, and right ventricle...",
+  "documentId": "all",
+  "topK": 5,
+  "threshold": 0.2
+}
+```
 
-| Operation | Time (10K vectors) | Time (100K vectors) |
-|-----------|-------------------|---------------------|
-| Without Index | ~500ms | ~5000ms |
-| With HNSW Index | ~5ms | ~10ms |
-
-**Result: 100x faster with pgvector!**
-
----
-
-# 🛠️ Tech Stack
-
-- **Java 17+**
-- **Spring Boot 3.5.7**
-- **PostgreSQL 12+** with **pgvector extension**
-- **REST APIs**
-- **HNSW Indexing** for fast vector search
-- **LLM** (Llama via Groq)
-- **Real Embeddings** (nomic-embed-text via Groq)
-- **Maven**
+**Tips:**
+- Lower `threshold` (e.g. `0.1`) = more results, less precise
+- Higher `topK` (e.g. `8`) = more context = better answers
+- Specify `documentId` to search only within one document
 
 ---
 
-# ▶️ Running the Application
-
-See **QUICKSTART.md** for detailed setup!
-
-**Quick version:**
-
-1. Start PostgreSQL with pgvector (Docker recommended)
-2. Configure environment variables
-3. Run:
-   ```bash
-   mvn spring-boot:run
-   ```
-4. Create HNSW index after first upload
-5. Test APIs using Postman or curl
+### Simple Ask (Legacy)
+```
+POST /ask-simple
+Content-Type: text/plain
+Body: your question here
+```
 
 ---
 
-# 📚 Documentation
+### List Documents
+```
+GET /documents
+```
 
-- **QUICKSTART.md** - Get started in 5 minutes
-- **DATABASE_SETUP.md** - Detailed PostgreSQL + pgvector setup
-- **RAG_IMPROVEMENTS_SUMMARY.md** - Complete architecture and improvements
+**Response:**
+```json
+{
+  "documents": ["uuid-1", "uuid-2"],
+  "count": 2,
+  "totalChunks": 87
+}
+```
+
+---
+
+### Get Document Info
+```
+GET /documents/{documentId}
+```
+
+**Response:**
+```json
+{
+  "documentId": "550e8400-e29b-41d4-a716-446655440000",
+  "chunkCount": 32
+}
+```
 
 ---
 
-# 📌 Design Philosophy
+### Delete Document
+```
+DELETE /documents/{documentId}
+```
 
-This project is designed to:
-
-- Demonstrate **production-ready RAG architecture**
-- Show clean separation of concerns
-- Provide AI-powered document analysis
-- Use **proper vector database** (PostgreSQL + pgvector)
-- Achieve **high performance** with HNSW indexing
-- Be **scalable** and **maintainable**
+Removes the document and all its vector chunks from the database.
 
 ---
+
+### Clear All Data
+```
+DELETE /clear
+```
+
+Deletes all documents and vector chunks. Use with caution.
+
+---
+
+## Project Structure
+
+```
+src/main/java/com/enterprise_wrapper_api/wrapper_api/
+├── WrapperApiApplication.java          # Spring Boot entry point
+└── rag/
+    ├── RagController.java              # Main REST API (upload, ask, list, delete)
+    ├── LlamaController.java            # Legacy simple ask endpoint
+    ├── RagService.java                 # Core orchestration logic
+    ├── EmbeddingService.java           # Calls Ollama to generate vector embeddings
+    ├── VectorStoreService.java         # Stores/searches vectors in PostgreSQL
+    ├── RetrieverService.java           # Converts query to embedding + runs search
+    ├── LlamaClient.java                # Calls Groq API for answer generation
+    ├── PdfService.java                 # Extracts text and chunks PDFs
+    ├── TextChunkService.java           # Simple word-based text splitter (utility)
+    ├── LocalEmbeddingService.java      # Fallback local embedder (not used in prod)
+    ├── entity/
+    │   ├── Document.java               # JPA entity for document metadata
+    │   └── VectorChunk.java            # JPA entity for text chunks + embeddings
+    ├── repository/
+    │   ├── DocumentRepository.java     # JPA queries for documents table
+    │   └── VectorChunkRepository.java  # JPA + native pgvector similarity queries
+    └── exception/
+        ├── RagException.java           # Base application exception
+        ├── DocumentNotFoundException.java  # Thrown when document ID not found
+        ├── InvalidFileException.java   # Thrown for bad file uploads
+        └── GlobalExceptionHandler.java # Maps exceptions to HTTP responses
+```
+
+---
+
+## Code Walkthrough
+
+### `RagController.java`
+The REST layer. Handles all HTTP requests and delegates to `RagService`. Exposes endpoints for upload, ask, list, delete, clear, and health check.
+
+### `RagService.java`
+The brain of the application. Orchestrates the full pipeline:
+- On upload: extract text → chunk → embed each chunk → store in DB
+- On question: embed question → retrieve similar chunks → build prompt → call LLM → return answer
+
+### `EmbeddingService.java`
+Calls the local Ollama API (`http://localhost:11434/api/embeddings`) with the `nomic-embed-text` model. Converts any text string into a 768-dimensional float vector.
+
+### `VectorStoreService.java`
+Manages all database operations:
+- Stores document metadata and vector chunks
+- Runs cosine similarity search using pgvector's `<=>` operator
+- Filters results by similarity threshold
+- Handles CRUD for documents and chunks
+
+### `RetrieverService.java`
+Bridge between the question and the vector store. Embeds the query using `EmbeddingService`, then calls `VectorStoreService.search()` to find the most similar chunks.
+
+### `LlamaClient.java`
+HTTP client for Groq's API. Sends a prompt to `llama-3.1-8b-instant` and returns the generated text. Uses low temperature (0.2) for factual, consistent answers.
+
+### `PdfService.java`
+Handles PDF processing:
+- Validates file (type, size, non-empty)
+- Extracts raw text using Apache PDFBox
+- Splits text into overlapping semantic chunks (1000 chars, 200 overlap) at sentence boundaries
+
+### `TextChunkService.java`
+Simple utility that splits text by word count. Used as a fallback or for basic chunking needs.
+
+### `Document.java`
+JPA entity mapped to the `documents` table. Stores document ID (UUID), filename, upload timestamp, and chunk count.
+
+### `VectorChunk.java`
+JPA entity mapped to the `vector_chunks` table. Stores the text content, its `vector(768)` embedding, chunk index, and a foreign key to the parent document.
+
+### `DocumentRepository.java`
+Spring Data JPA repository for the `documents` table. Provides find, exists, and delete by `documentId`.
+
+### `VectorChunkRepository.java`
+JPA repository with native SQL queries for pgvector similarity search using the `<=>` (cosine distance) operator. Supports both global search and per-document search.
+
+### `GlobalExceptionHandler.java`
+`@ControllerAdvice` that catches `RagException`, `DocumentNotFoundException`, `InvalidFileException`, and generic exceptions, returning structured JSON error responses with appropriate HTTP status codes.
+
+---
+
+## Database Schema
+
+```sql
+CREATE TABLE documents (
+    document_id VARCHAR(36) PRIMARY KEY,
+    filename    VARCHAR(255) NOT NULL,
+    created_at  TIMESTAMP NOT NULL,
+    chunk_count INTEGER
+);
+
+CREATE TABLE vector_chunks (
+    id          BIGSERIAL PRIMARY KEY,
+    document_id VARCHAR(36) REFERENCES documents(document_id),
+    content     TEXT NOT NULL,
+    embedding   vector(768) NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    created_at  TIMESTAMP NOT NULL
+);
+```
+
+---
+
+## Configuration
+
+`src/main/resources/application.properties`
+
+```properties
+server.port=8080
+server.servlet.context-path=/api
+
+# Groq LLM
+groq.api.key=${GROQ_API_KEY}
+groq.api.base-url=https://api.groq.com
+
+# Ollama Embeddings
+ollama.base-url=http://localhost:11434
+
+# PostgreSQL
+spring.datasource.url=jdbc:postgresql://localhost:5432/rag_db
+spring.datasource.username=postgres
+spring.datasource.password=postgres
+
+# File Upload
+spring.servlet.multipart.max-file-size=100MB
+spring.servlet.multipart.max-request-size=100MB
+```
+
+---
+
+## Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Connection refused` on port 8080 | App not running | Run `mvn spring-boot:run` |
+| `password authentication failed` | DB not running | Start Docker and `rag-postgres` container |
+| `404 from POST /api/embeddings` | Ollama model not pulled | Run `docker exec -it ollama ollama pull nomic-embed-text` |
+| `expected X dimensions, not Y` | Vector dimension mismatch | Drop and recreate `vector_chunks` table |
+| `No relevant information found` | Low similarity or wrong document | Lower `threshold` or increase `topK` |
+| `401 Unauthorized` from Groq | Missing API key | Set `$env:GROQ_API_KEY` |

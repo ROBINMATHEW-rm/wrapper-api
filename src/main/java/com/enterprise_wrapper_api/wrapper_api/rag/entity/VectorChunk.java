@@ -28,7 +28,7 @@ public class VectorChunk {
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
-    @Column(name = "embedding", columnDefinition = "vector(384)", nullable = false)
+    @Column(name = "embedding", columnDefinition = "vector(768)", nullable = false)
     private String embedding;
 
     @Column(name = "chunk_index", nullable = false)
