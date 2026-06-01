@@ -59,7 +59,7 @@ public class RagService {
         }
     }
 
-    public String askQuestion(String question, String documentId, int topK, Double threshold) {
+    public String askQuestion(String question, String documentId, int topK, Double threshold, Double temperature) {
         if (question == null || question.trim().isEmpty()) {
             throw new IllegalArgumentException("Question cannot be empty");
         }
@@ -71,6 +71,12 @@ public class RagService {
         if (threshold != null && (threshold < 0.0 || threshold > 1.0)) {
             throw new IllegalArgumentException("Threshold must be between 0.0 and 1.0");
         }
+
+        if (temperature != null && (temperature < 0.0 || temperature > 1.0)) {
+            throw new IllegalArgumentException("Temperature must be between 0.0 and 1.0");
+        }
+
+        double temp = temperature != null ? temperature : 0.2;
 
         // Validate document exists if specified
         if (documentId != null && !vectorStoreService.documentExists(documentId)) {
@@ -104,7 +110,7 @@ public class RagService {
             System.out.println("=====================");
 
             // Generate answer using LLM
-            return llamaClient.generateAnswer(prompt);
+            return llamaClient.generateAnswer(prompt, temp);
         } catch (Exception e) {
             if (e instanceof RagException || e instanceof IllegalArgumentException) {
                 throw e;

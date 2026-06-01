@@ -27,16 +27,22 @@ public class LlamaClient {
     }
 
     /**
-     * Sends prompt to Groq LLaMA and returns generated text
+     * Sends prompt to Groq LLaMA and returns generated text (default temperature 0.2)
      */
     public String generateAnswer(String prompt) {
+        return generateAnswer(prompt, 0.2);
+    }
 
+    /**
+     * Sends prompt to Groq LLaMA with a custom temperature
+     */
+    public String generateAnswer(String prompt, double temperature) {
         Map<String, Object> body = Map.of(
                 "model", "llama-3.1-8b-instant",
                 "messages", List.of(
                         Map.of("role", "user", "content", prompt)
                 ),
-                "temperature", 0.2,
+                "temperature", temperature,
                 "max_tokens", 500
         );
 
