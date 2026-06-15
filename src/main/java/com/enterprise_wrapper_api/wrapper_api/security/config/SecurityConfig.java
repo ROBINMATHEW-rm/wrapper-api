@@ -1,6 +1,8 @@
 package com.enterprise_wrapper_api.wrapper_api.security.config;
 
 import com.enterprise_wrapper_api.wrapper_api.security.filter.JwtAuthenticationFilter;
+import com.enterprise_wrapper_api.wrapper_api.security.oauth2.OAuth2AuthenticationSuccessHandler;
+import com.enterprise_wrapper_api.wrapper_api.security.oauth2.OAuth2UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -26,11 +28,17 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final UserDetailsService userDetailsService;
+    private final OAuth2UserService oAuth2UserService;
+    private final OAuth2AuthenticationSuccessHandler oAuth2SuccessHandler;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter,
-                          UserDetailsService userDetailsService) {
+                          UserDetailsService userDetailsService,
+                          OAuth2UserService oAuth2UserService,
+                          OAuth2AuthenticationSuccessHandler oAuth2SuccessHandler) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.userDetailsService = userDetailsService;
+        this.oAuth2UserService = oAuth2UserService;
+        this.oAuth2SuccessHandler = oAuth2SuccessHandler;
     }
 
     @Bean
@@ -40,6 +48,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints — no token needed
                 .requestMatchers("/auth/**").permitAll()
+                .requestMatchers("/oauth2/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
 
                 // Admin-only endpoints
@@ -52,11 +61,22 @@ public class SecurityConfig {
                 // Everything else requires authentication
                 .anyRequest().authenticated()
             )
+            // ── Existing JWT auth (unchanged) ──────────────────────────────
             .sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
             )
             .authenticationProvider(authenticationProvider())
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+
+            // ── OAuth2 login (Google / GitHub) — added alongside JWT ────────
+            // Sessions are needed only for the OAuth2 redirect flow.
+            // After success, a JWT is issued and sessions are no longer used.
+            .oauth2Login(oauth2 -> oauth2
+                .userInfoEndpoint(userInfo ->
+                    userInfo.userService(oAuth2UserService)
+                )
+                .successHandler(oAuth2SuccessHandler)
+            );
 
         return http.build();
     }

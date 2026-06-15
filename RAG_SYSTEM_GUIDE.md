@@ -2,13 +2,14 @@
 
 ## 📚 Table of Contents
 1. [What is This System?](#what-is-this-system)
-2. [How Does It Work?](#how-does-it-work)
-3. [Key Features](#key-features)
-4. [API Endpoints](#api-endpoints)
-5. [Technical Architecture](#technical-architecture)
-6. [Setup & Configuration](#setup--configuration)
-7. [Usage Examples](#usage-examples)
-8. [Troubleshooting](#troubleshooting)
+2. [RAG Pipeline Workflow](#rag-pipeline-workflow)
+3. [How Does It Work?](#how-does-it-work)
+4. [Key Features](#key-features)
+5. [API Endpoints](#api-endpoints)
+6. [Technical Architecture](#technical-architecture)
+7. [Setup & Configuration](#setup--configuration)
+8. [Usage Examples](#usage-examples)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -28,10 +29,224 @@ This system is like having a **super-smart assistant** that has read all your do
 
 This is a **RAG (Retrieval-Augmented Generation)** system that:
 - Extracts text from PDF documents
-- Converts text into vector embeddings using Groq's embedding model
+- Converts text into vector embeddings using Ollama `nomic-embed-text` (768-dim)
 - Stores embeddings in PostgreSQL with pgvector extension
 - Performs semantic search to find relevant content
-- Uses Groq's LLM to generate contextual answers
+- Uses Groq LLaMA 3.1 to generate contextual answers
+
+---
+
+## RAG Pipeline Workflow
+
+### Full Pipeline Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        INGESTION PIPELINE                           │
+│                      (POST /api/rag/upload)                         │
+└─────────────────────────────────────────────────────────────────────┘
+
+  User uploads PDF
+        │
+        ▼
+┌───────────────────┐
+│   RagController   │  Receives MultipartFile via HTTP POST
+│  /rag/upload      │  Validates file is present
+└────────┬──────────┘
+         │
+         ▼
+┌───────────────────┐
+│    RagService     │  Generates UUID as documentId
+│  processPdf()     │  Calls vectorStoreService.storeDocumentMetadata()
+└────────┬──────────┘         │
+         │                   ▼
+         │         ┌──────────────────────┐
+         │         │  VectorStoreService  │  Saves to documents table:
+         │         │ storeDocumentMetadata│  { documentId, filename, chunkCount=0 }
+         │         └──────────────────────┘
+         │
+         ▼
+┌───────────────────┐
+│    PdfService     │  Uses Apache PDFBox to extract raw text
+│  extractText()    │  Validates: file not empty, PDF only, max 100MB
+└────────┬──────────┘
+         │
+         ▼  raw text string
+┌───────────────────┐
+│    PdfService     │  Splits text into semantic chunks
+│   chunkText()     │  Default: chunk size = 1000 chars, overlap = 200 chars
+│                   │  Algorithm:
+│                   │  1. Cleans whitespace
+│                   │  2. Splits into sentences (regex: .!? boundary)
+│                   │  3. Groups sentences into chunks ≤ 1000 chars
+│                   │  4. Adds 200-char overlap between consecutive chunks
+│                   │     (ensures context isn't lost at boundaries)
+└────────┬──────────┘
+         │
+         │  List<String> chunks  (e.g. 190 chunks for a large PDF)
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              FOR EACH CHUNK (sequential loop)                   │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌───────────────────┐
+│  EmbeddingService │  Sends chunk text to Ollama running locally
+│ generateEmbedding │  Model: nomic-embed-text
+│                   │  POST http://localhost:11434/api/embeddings
+│                   │  Returns: List<Double> of 768 dimensions
+│                   │  Truncates input to 8000 chars if needed
+└────────┬──────────┘
+         │
+         ▼  List<Double> embedding (768 floats)
+┌───────────────────┐
+│  VectorStoreService│  Converts embedding to pgvector string: [0.1,0.2,...]
+│     store()        │  Runs INSERT INTO vector_chunks:
+│                    │  { chunk_index, content, created_at, document_id,
+│                    │    CAST('[...]' AS vector) }
+│                    │  Updates documents.chunk_count++
+└────────────────────┘
+
+  Result: documentId returned to user, all chunks stored in PostgreSQL
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        QUERY PIPELINE                               │
+│                      (POST /api/rag/ask)                            │
+└─────────────────────────────────────────────────────────────────────┘
+
+  User sends: question + optional(documentId, topK, threshold, temperature)
+        │
+        ▼
+┌───────────────────┐
+│   RagController   │  Reads query params
+│   /rag/ask        │  Passes to RagService.askQuestion()
+└────────┬──────────┘
+         │
+         ▼
+┌───────────────────┐
+│    RagService     │  Validates inputs:
+│  askQuestion()    │  - question not empty
+│                   │  - topK between 1–20
+│                   │  - threshold between 0.0–1.0 (if provided)
+│                   │  - temperature between 0.0–1.0 (if provided)
+│                   │  - documentId exists in DB (if provided)
+│                   │  Defaults: temperature=0.2, threshold=0.3
+└────────┬──────────┘
+         │
+         ▼
+┌───────────────────┐
+│  RetrieverService │  Calls EmbeddingService.generateEmbedding(question)
+│ retrieveRelevant  │  Converts the QUESTION into a 768-dim vector
+│    Docs()         │  (same model as ingestion — nomic-embed-text)
+└────────┬──────────┘
+         │
+         ▼  query embedding (768 floats)
+┌───────────────────┐
+│  VectorStoreService│  Runs pgvector ANN search:
+│    search()        │
+│                    │  If documentId specified:
+│                    │    SELECT ... WHERE document_id = ?
+│                    │    ORDER BY embedding <-> '[...]'::vector
+│                    │    LIMIT topK * 2
+│                    │
+│                    │  If no documentId (search all):
+│                    │    SELECT ... ORDER BY embedding <-> '[...]'::vector
+│                    │    LIMIT topK * 2
+│                    │
+│                    │  Then in Java:
+│                    │  1. Computes cosine similarity for each candidate
+│                    │  2. Filters: similarity >= threshold (default 0.3)
+│                    │  3. Sorts descending by similarity score
+│                    │  4. Takes top topK results
+└────────┬──────────┘
+         │
+         │  List<String> relevantChunks  (most semantically similar text)
+         │
+         ▼
+┌───────────────────┐
+│    RagService     │  Joins chunks with \n\n separator
+│  buildPrompt()    │  Builds structured prompt:
+│                   │
+│                   │  "You are a helpful assistant...
+│                   │   Context: <retrieved chunks>
+│                   │   Question: <user question>
+│                   │   Instructions: answer ONLY from context..."
+└────────┬──────────┘
+         │
+         ▼
+┌───────────────────┐
+│    LlamaClient    │  Sends prompt to Groq API
+│  generateAnswer() │  POST https://api.groq.com/openai/v1/chat/completions
+│                   │  Model: llama-3.1-8b-instant
+│                   │  Temperature: user-specified (default 0.2)
+│                   │  Max tokens: 500
+│                   │  Timeout: 30 seconds
+└────────┬──────────┘
+         │
+         ▼  answer string
+┌───────────────────┐
+│   RagController   │  Builds response JSON:
+│                   │  {
+│                   │    question, answer, documentId,
+│                   │    topK, threshold, temperature,
+│                   │    warning (if temperature > 0.8)
+│                   │  }
+└───────────────────┘
+
+  Result: AI-generated answer based strictly on uploaded document content
+```
+
+---
+
+### Cosine Similarity Explained
+
+The similarity between the query and each chunk is calculated as:
+
+```
+similarity = (A · B) / (||A|| × ||B||)
+
+Where:
+  A = query embedding vector (768 floats)
+  B = chunk embedding vector (768 floats)
+  · = dot product
+  || || = vector magnitude (L2 norm)
+
+Range: -1.0 to 1.0
+  1.0 = identical meaning
+  0.0 = unrelated
+ -1.0 = opposite meaning
+
+Default threshold = 0.3 (only chunks with similarity ≥ 0.3 are used)
+```
+
+---
+
+### Service Responsibilities Summary
+
+| Class | Role | External Call |
+|---|---|---|
+| `RagController` | HTTP layer, request/response mapping | None |
+| `RagService` | Orchestrates both pipelines, validation | None |
+| `PdfService` | Text extraction + semantic chunking | None (local PDFBox) |
+| `EmbeddingService` | Converts text to 768-dim vectors | Ollama `localhost:11434` |
+| `VectorStoreService` | Stores and searches vectors in PostgreSQL | PostgreSQL via JDBC |
+| `RetrieverService` | Combines embedding + search into one call | None |
+| `LlamaClient` | Sends prompt to LLM, returns answer | Groq API |
+| `TextChunkService` | Word-based chunking utility (alternative) | None |
+
+---
+
+### Data Flow Summary
+
+```
+UPLOAD:  PDF → Text → Sentences → Chunks → Embeddings → PostgreSQL (vector_chunks table)
+
+QUERY:   Question → Embedding → pgvector search → Top-K chunks → Prompt → LLaMA → Answer
+```
 
 ---
 

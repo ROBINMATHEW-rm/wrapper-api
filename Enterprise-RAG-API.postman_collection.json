@@ -1,0 +1,593 @@
+{
+	"info": {
+		"_postman_id": "rag-wrapper-api-collection",
+		"name": "Enterprise RAG Wrapper API",
+		"description": "Complete API collection for the Enterprise RAG Wrapper API.\n\n## How to use:\n1. Import this file into Postman\n2. Set the `baseUrl` variable to `http://localhost:8080/api`\n3. Run **Register** or **Login** first\n4. Copy the `token` from the response\n5. Set the `token` variable in the collection or use the login request's auto-set script\n6. All RAG requests will now include the token automatically",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080/api",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "documentId",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Authentication",
+			"description": "Register, login, and get current user info. These endpoints are public — no token required.",
+			"item": [
+				{
+					"name": "Register User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.token) {",
+									"    pm.collectionVariables.set('token', json.token);",
+									"    console.log('Token saved automatically:', json.token.substring(0, 30) + '...');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"john\",\n  \"email\": \"john@example.com\",\n  \"password\": \"secret123\",\n  \"admin\": false\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						},
+						"description": "Creates a new user account with ROLE_USER.\n\nSet `admin: true` to create an admin account.\n\nThe token is automatically saved to the `token` collection variable after successful registration."
+					},
+					"response": []
+				},
+				{
+					"name": "Register Admin",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.token) {",
+									"    pm.collectionVariables.set('token', json.token);",
+									"    console.log('Admin token saved:', json.token.substring(0, 30) + '...');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin\",\n  \"email\": \"admin@example.com\",\n  \"password\": \"admin123\",\n  \"admin\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						},
+						"description": "Creates an admin account with ROLE_ADMIN.\n\nAdmins can delete documents and clear all data."
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.token) {",
+									"    pm.collectionVariables.set('token', json.token);",
+									"    console.log('Token saved automatically:', json.token.substring(0, 30) + '...');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"john\",\n  \"password\": \"secret123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						},
+						"description": "Authenticates with username and password.\n\nThe JWT token is automatically saved to the `token` collection variable after successful login.\n\nAll subsequent RAG requests will use this token."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "me"]
+						},
+						"description": "Returns the currently authenticated user's username and role.\n\nRequires a valid JWT token."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RAG - Documents",
+			"description": "Upload PDFs and manage documents. All endpoints require authentication.",
+			"item": [
+				{
+					"name": "Upload PDF",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.documentId) {",
+									"    pm.collectionVariables.set('documentId', json.documentId);",
+									"    console.log('Document ID saved:', json.documentId);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "",
+									"description": "Select a PDF file to upload"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/rag/upload",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "upload"]
+						},
+						"description": "Uploads a PDF document and processes it:\n1. Extracts text using Apache PDFBox\n2. Splits into semantic chunks (1000 chars, 200 overlap)\n3. Generates embeddings using Ollama nomic-embed-text (768-dim)\n4. Stores in PostgreSQL pgvector\n\nThe documentId is automatically saved to the collection variable.\n\n⚠️ Large PDFs (190+ chunks) take time — Ollama processes each chunk sequentially."
+					},
+					"response": []
+				},
+				{
+					"name": "List All Documents",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/documents",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "documents"]
+						},
+						"description": "Returns all uploaded document IDs, filenames, and total chunk count."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Document Info",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/documents/{{documentId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "documents", "{{documentId}}"]
+						},
+						"description": "Returns chunk count for a specific document.\n\nUses the `documentId` collection variable set after upload."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Document (Admin Only)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/documents/{{documentId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "documents", "{{documentId}}"]
+						},
+						"description": "Deletes a document and all its vector chunks.\n\n⚠️ ADMIN ONLY — returns 403 for ROLE_USER.\n\nRequires admin token from the Register Admin or Login request."
+					},
+					"response": []
+				},
+				{
+					"name": "Clear All Data (Admin Only)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/clear",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "clear"]
+						},
+						"description": "Deletes ALL documents and vector chunks from the database.\n\n⚠️ ADMIN ONLY — returns 403 for ROLE_USER.\n⚠️ IRREVERSIBLE — use with caution."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RAG - Ask Questions",
+			"description": "Ask questions against uploaded documents. All endpoints require authentication.",
+			"item": [
+				{
+					"name": "Ask Question (Basic)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/ask?question=what is the main topic",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "ask"],
+							"query": [
+								{
+									"key": "question",
+									"value": "what is the main topic"
+								}
+							]
+						},
+						"description": "Asks a question across ALL uploaded documents with default settings:\n- topK = 3\n- threshold = 0.3\n- temperature = 0.2\n\nSearches all documents."
+					},
+					"response": []
+				},
+				{
+					"name": "Ask Question (Specific Document)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/ask?question=what is the main topic&documentId={{documentId}}&topK=3&threshold=0.3",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "ask"],
+							"query": [
+								{
+									"key": "question",
+									"value": "what is the main topic"
+								},
+								{
+									"key": "documentId",
+									"value": "{{documentId}}"
+								},
+								{
+									"key": "topK",
+									"value": "3"
+								},
+								{
+									"key": "threshold",
+									"value": "0.3"
+								}
+							]
+						},
+						"description": "Asks a question scoped to a specific document.\n\nUses the `documentId` collection variable."
+					},
+					"response": []
+				},
+				{
+					"name": "Ask Question (High Accuracy)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/ask?question=explain the key concepts&topK=5&threshold=0.2&temperature=0.1",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "ask"],
+							"query": [
+								{
+									"key": "question",
+									"value": "explain the key concepts"
+								},
+								{
+									"key": "topK",
+									"value": "5"
+								},
+								{
+									"key": "threshold",
+									"value": "0.2"
+								},
+								{
+									"key": "temperature",
+									"value": "0.1"
+								}
+							]
+						},
+						"description": "Optimized for factual, precise answers:\n- topK=5: retrieves more context chunks\n- threshold=0.2: lower threshold = more chunks pass filter\n- temperature=0.1: very factual, consistent output\n\nBest for technical documents."
+					},
+					"response": []
+				},
+				{
+					"name": "Ask Question (High Temperature Warning)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/ask?question=summarize this document creatively&topK=3&temperature=0.9",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "ask"],
+							"query": [
+								{
+									"key": "question",
+									"value": "summarize this document creatively"
+								},
+								{
+									"key": "topK",
+									"value": "3"
+								},
+								{
+									"key": "temperature",
+									"value": "0.9"
+								}
+							]
+						},
+						"description": "Tests temperature > 0.8 warning.\n\nResponse will include a `warning` field:\n\"High temperature (0.9) — answers may be creative or less factually accurate.\"\n\nFor RAG, keep temperature between 0.1–0.3."
+					},
+					"response": []
+				},
+				{
+					"name": "Ask Question (All Params)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/ask?question=your question here&documentId={{documentId}}&topK=5&threshold=0.2&temperature=0.2",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "ask"],
+							"query": [
+								{
+									"key": "question",
+									"value": "your question here"
+								},
+								{
+									"key": "documentId",
+									"value": "{{documentId}}"
+								},
+								{
+									"key": "topK",
+									"value": "5"
+								},
+								{
+									"key": "threshold",
+									"value": "0.2"
+								},
+								{
+									"key": "temperature",
+									"value": "0.2"
+								}
+							]
+						},
+						"description": "Template with all available parameters:\n\n- `question` (required): Your question\n- `documentId` (optional): Scope to one document. Leave blank to search all.\n- `topK` (1–20, default 3): Number of chunks to retrieve\n- `threshold` (0.0–1.0, default 0.3): Minimum similarity score\n- `temperature` (0.0–1.0, default 0.2): LLM creativity. Keep 0.1–0.3 for RAG."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RAG - Health",
+			"description": "Service health and status endpoints.",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "health"]
+						},
+						"description": "Returns service status, total document count, and total chunk count.\n\nGood first request to verify the app is running correctly."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "OAuth2",
+			"description": "OAuth2 login links and token retrieval. Open login URLs in a browser.",
+			"item": [
+				{
+					"name": "Get OAuth2 Login Links",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/oauth2/links",
+							"host": ["{{baseUrl}}"],
+							"path": ["oauth2", "links"]
+						},
+						"description": "Returns Google and GitHub OAuth2 login URLs.\n\nOpen the returned URLs in a browser to initiate OAuth2 login."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Token After OAuth2 Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.token) {",
+									"    pm.collectionVariables.set('token', json.token);",
+									"    console.log('OAuth2 token saved:', json.token.substring(0, 30) + '...');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/oauth2/token?token=PASTE_YOUR_OAUTH2_TOKEN_HERE",
+							"host": ["{{baseUrl}}"],
+							"path": ["oauth2", "token"],
+							"query": [
+								{
+									"key": "token",
+									"value": "PASTE_YOUR_OAUTH2_TOKEN_HERE"
+								}
+							]
+						},
+						"description": "After completing Google/GitHub OAuth2 login in a browser, you are redirected to this URL with a JWT token.\n\nReplace `PASTE_YOUR_OAUTH2_TOKEN_HERE` with the token from the redirect URL.\n\nThe token is automatically saved to the collection variable."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [""]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [""]
+			}
+		}
+	]
+}
