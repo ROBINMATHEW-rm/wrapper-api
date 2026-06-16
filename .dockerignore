@@ -1,0 +1,8 @@
+.git/
+.gitignore
+*.md
+.idea/
+.vscode/
+.mvn/
+*.ps1
+src/
