@@ -5,6 +5,7 @@ import com.enterprise_wrapper_api.wrapper_api.rag.exception.RagException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -163,6 +164,32 @@ public class RagService {
             "Answer:",
             context, question
         );
+    }
+
+    /**
+     * Streaming version of askQuestion - returns tokens as Flux<String>
+     */
+    public Flux<String> askQuestionStream(String question, String documentId, int topK, Double threshold, Double temperature) {
+        if (question == null || question.trim().isEmpty()) {
+            return Flux.error(new IllegalArgumentException("Question cannot be empty"));
+        }
+
+        double temp = temperature != null ? temperature : 0.2;
+
+        if (documentId != null && !vectorStoreService.documentExists(documentId)) {
+            return Flux.error(new DocumentNotFoundException(documentId));
+        }
+
+        List<String> relevantChunks = retrieverService.retrieveRelevantDocs(question, topK, documentId, threshold);
+
+        if (relevantChunks.isEmpty()) {
+            return Flux.just("No relevant information found in the document(s).");
+        }
+
+        String context = String.join("\n\n", relevantChunks);
+        String prompt = buildPrompt(question, context);
+
+        return llamaClient.generateAnswerStream(prompt, temp);
     }
 
     public void deleteDocument(String documentId) {

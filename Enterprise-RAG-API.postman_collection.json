@@ -480,6 +480,63 @@
 						"description": "Template with all available parameters:\n\n- `question` (required): Your question\n- `documentId` (optional): Scope to one document. Leave blank to search all.\n- `topK` (1–20, default 3): Number of chunks to retrieve\n- `threshold` (0.0–1.0, default 0.3): Minimum similarity score\n- `temperature` (0.0–1.0, default 0.2): LLM creativity. Keep 0.1–0.3 for RAG."
 					},
 					"response": []
+				},
+				{
+					"name": "🔥 Ask Question - Streaming (SSE)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							},
+							{
+								"key": "Accept",
+								"value": "text/event-stream",
+								"description": "Required for SSE streaming"
+							},
+							{
+								"key": "Cache-Control",
+								"value": "no-cache"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/ask/stream?question=What are the chambers of the heart?&topK=5&threshold=0.2",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "ask", "stream"],
+							"query": [
+								{
+									"key": "question",
+									"value": "What are the chambers of the heart?",
+									"description": "Your question"
+								},
+								{
+									"key": "topK",
+									"value": "5",
+									"description": "Number of chunks to retrieve"
+								},
+								{
+									"key": "threshold",
+									"value": "0.2",
+									"description": "Similarity threshold"
+								},
+								{
+									"key": "documentId",
+									"value": "{{documentId}}",
+									"description": "Optional: scope to specific document",
+									"disabled": true
+								},
+								{
+									"key": "temperature",
+									"value": "0.2",
+									"description": "LLM temperature",
+									"disabled": true
+								}
+							]
+						},
+						"description": "🔥 **Streaming Response** — answers appear token by token like ChatGPT.\n\nUses Server-Sent Events (SSE). The response streams each word as the LLM generates it.\n\nEach SSE event:\n- `event: token` — next word/token\n- `event: done` — stream finished\n\n**Example response stream:**\n```\nevent: token\ndata: The\n\nevent: token\ndata: heart\n\nevent: token\ndata: has\n\nevent: done\ndata: [DONE]\n```\n\n**Note:** Postman shows the full streamed response in body. Use a browser/frontend to see real-time word-by-word effect."
+					},
+					"response": []
 				}
 			]
 		},

@@ -8,8 +8,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Flux;
 
 import java.util.HashMap;
 import java.util.List;
@@ -96,8 +98,35 @@ public class RagController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "List all documents", description = "Returns all uploaded document IDs and total chunk count")
-    @ApiResponse(responseCode = "200", description = "Document list returned")
+    @Operation(
+        summary = "Ask a question (streaming)",
+        description = "Same as /ask but streams the answer token by token using Server-Sent Events (SSE). Watch the answer appear in real time."
+    )
+    @GetMapping(value = "/ask/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> askQuestionStream(
+            @Parameter(description = "Your question", required = true)
+            @RequestParam("question") String question,
+            @Parameter(description = "Specific document ID to search, or omit to search all")
+            @RequestParam(value = "documentId", required = false) String documentId,
+            @Parameter(description = "Number of top chunks to retrieve (default 3)")
+            @RequestParam(value = "topK", defaultValue = "3") int topK,
+            @Parameter(description = "Minimum similarity threshold (default 0.3)")
+            @RequestParam(value = "threshold", required = false) Double threshold,
+            @Parameter(description = "LLM temperature (default 0.2)")
+            @RequestParam(value = "temperature", required = false) Double temperature
+    ) {
+        return ragService.askQuestionStream(question, documentId, topK, threshold, temperature)
+                .map(token -> ServerSentEvent.<String>builder()
+                        .event("token")
+                        .data(token)
+                        .build())
+                .concatWith(Flux.just(ServerSentEvent.<String>builder()
+                        .event("done")
+                        .data("[DONE]")
+                        .build()));
+    }
+
+    @Operation(summary = "List all documents", description = "Returns all uploaded document IDs and total chunk count")    @ApiResponse(responseCode = "200", description = "Document list returned")
     @GetMapping("/documents")
     public ResponseEntity<Map<String, Object>> listDocuments() {
         List<String> documentIds = ragService.listDocuments();
