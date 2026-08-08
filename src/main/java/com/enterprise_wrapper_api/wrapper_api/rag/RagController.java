@@ -32,6 +32,62 @@ public class RagController {
     }
 
     @Operation(
+        summary = "Upload a PDF (async)",
+        description = "Returns immediately with a jobId. Processing happens in background. Poll /rag/jobs/{jobId} for status."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "202", description = "Upload accepted, processing in background"),
+        @ApiResponse(responseCode = "400", description = "Invalid file")
+    })
+    @PostMapping(value = "/upload/async", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> uploadPdfAsync(
+            @Parameter(description = "PDF file to upload", required = true)
+            @RequestParam("file") MultipartFile file) {
+
+        UploadJob job = ragService.processPdfAsync(file);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("jobId", job.getJobId());
+        response.put("documentId", job.getDocumentId());
+        response.put("filename", job.getFilename());
+        response.put("status", job.getStatus().name());
+        response.put("message", "Upload accepted. Processing in background. Poll /rag/jobs/" + job.getJobId() + " for status.");
+
+        return ResponseEntity.accepted().body(response);
+    }
+
+    @Operation(
+        summary = "Get upload job status",
+        description = "Poll this endpoint to check the progress of an async upload job."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Job status returned"),
+        @ApiResponse(responseCode = "404", description = "Job not found")
+    })
+    @GetMapping("/jobs/{jobId}")
+    public ResponseEntity<Map<String, Object>> getJobStatus(@PathVariable String jobId) {
+        UploadJob job = ragService.getJobStatus(jobId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("jobId", job.getJobId());
+        response.put("documentId", job.getDocumentId());
+        response.put("filename", job.getFilename());
+        response.put("status", job.getStatus().name());
+        response.put("totalChunks", job.getTotalChunks());
+        response.put("processedChunks", job.getProcessedChunks());
+        response.put("progressPercent", job.getProgressPercent());
+        response.put("createdAt", job.getCreatedAt());
+        if (job.getCompletedAt() != null) {
+            response.put("completedAt", job.getCompletedAt());
+        }
+        if (job.getErrorMessage() != null) {
+            response.put("error", job.getErrorMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
         summary = "Upload a PDF",
         description = "Uploads a PDF, extracts text, splits into chunks, generates embeddings via Ollama, and stores in pgvector"
     )

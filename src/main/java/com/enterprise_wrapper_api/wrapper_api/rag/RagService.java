@@ -6,8 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import reactor.core.publisher.Flux;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +25,9 @@ public class RagService {
 
     // Thread pool for parallel embedding generation
     private final ExecutorService embeddingExecutor = Executors.newFixedThreadPool(5);
+
+    // In-memory job store (jobId -> UploadJob)
+    private final ConcurrentHashMap<String, UploadJob> jobStore = new ConcurrentHashMap<>();
 
     public RagService(PdfService pdfService,
                       EmbeddingService embeddingService,
@@ -97,6 +102,99 @@ public class RagService {
             if (e instanceof RagException) throw e;
             throw new RagException("Failed to process PDF: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Async upload - returns immediately with jobId, processes in background
+     */
+    public UploadJob processPdfAsync(MultipartFile file) {
+        String jobId = UUID.randomUUID().toString();
+        String documentId = UUID.randomUUID().toString();
+        String filename = file.getOriginalFilename();
+
+        UploadJob job = new UploadJob(jobId, documentId, filename);
+        jobStore.put(jobId, job);
+
+        // Copy file bytes immediately (MultipartFile becomes invalid after request ends)
+        byte[] fileBytes;
+        try {
+            fileBytes = file.getBytes();
+        } catch (Exception e) {
+            job.setStatus(UploadJob.Status.FAILED);
+            job.setErrorMessage("Failed to read file: " + e.getMessage());
+            return job;
+        }
+
+        // Process in background
+        embeddingExecutor.submit(() -> {
+            try {
+                job.setStatus(UploadJob.Status.PROCESSING);
+                vectorStoreService.storeDocumentMetadata(documentId, filename);
+
+                String text = pdfService.extractTextFromBytes(fileBytes, filename);
+                List<String> chunks = pdfService.chunkText(text);
+
+                if (chunks.isEmpty()) {
+                    job.setStatus(UploadJob.Status.FAILED);
+                    job.setErrorMessage("No chunks generated from PDF");
+                    return;
+                }
+
+                job.setTotalChunks(chunks.size());
+                System.out.println("Async processing " + chunks.size() + " chunks for job: " + jobId);
+
+                int batchSize = 5;
+                for (int batchStart = 0; batchStart < chunks.size(); batchStart += batchSize) {
+                    int batchEnd = Math.min(batchStart + batchSize, chunks.size());
+                    List<String> batch = chunks.subList(batchStart, batchEnd);
+
+                    List<Future<EmbeddingResult>> futures = new ArrayList<>();
+                    for (int i = 0; i < batch.size(); i++) {
+                        final int chunkIndex = batchStart + i;
+                        final String chunk = batch.get(i);
+                        futures.add(embeddingExecutor.submit(() -> {
+                            List<Double> embedding = embeddingService.generateEmbedding(chunk);
+                            return new EmbeddingResult(chunkIndex, chunk, embedding);
+                        }));
+                    }
+
+                    for (Future<EmbeddingResult> future : futures) {
+                        EmbeddingResult result = future.get(60, TimeUnit.SECONDS);
+                        vectorStoreService.store(documentId, result.content, result.embedding, result.index);
+                        job.incrementProcessedChunks();
+                    }
+                }
+
+                job.setStatus(UploadJob.Status.COMPLETED);
+                job.setCompletedAt(LocalDateTime.now());
+                System.out.println("Job completed: " + jobId + " with " + chunks.size() + " chunks");
+
+            } catch (Exception e) {
+                job.setStatus(UploadJob.Status.FAILED);
+                job.setErrorMessage(e.getMessage());
+                System.err.println("Job failed: " + jobId + " - " + e.getMessage());
+            }
+        });
+
+        return job;
+    }
+
+    /**
+     * Get job status by jobId
+     */
+    public UploadJob getJobStatus(String jobId) {
+        UploadJob job = jobStore.get(jobId);
+        if (job == null) {
+            throw new RagException("Job not found: " + jobId);
+        }
+        return job;
+    }
+
+    /**
+     * Get all jobs
+     */
+    public Map<String, UploadJob> getAllJobs() {
+        return jobStore;
     }
 
     // Simple result holder

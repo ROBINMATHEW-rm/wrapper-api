@@ -20,6 +20,11 @@
 			"key": "documentId",
 			"value": "",
 			"type": "string"
+		},
+		{
+			"key": "jobId",
+			"value": "",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -223,6 +228,72 @@
 							"path": ["rag", "upload"]
 						},
 						"description": "Uploads a PDF document and processes it:\n1. Extracts text using Apache PDFBox\n2. Splits into semantic chunks (1000 chars, 200 overlap)\n3. Generates embeddings using Ollama nomic-embed-text (768-dim)\n4. Stores in PostgreSQL pgvector\n\nThe documentId is automatically saved to the collection variable.\n\n⚠️ Large PDFs (190+ chunks) take time — Ollama processes each chunk sequentially."
+					},
+					"response": []
+				},
+				{
+					"name": "⚡ Upload PDF (Async)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.jobId) {",
+									"    pm.collectionVariables.set('jobId', json.jobId);",
+									"    pm.collectionVariables.set('documentId', json.documentId);",
+									"    console.log('Job ID saved:', json.jobId);",
+									"    console.log('Document ID saved:', json.documentId);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "",
+									"description": "Select a PDF file to upload"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/rag/upload/async",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "upload", "async"]
+						},
+						"description": "⚡ **Async Upload** — returns instantly (<1 second) with a jobId. Processing happens in background.\n\nResponse:\n```json\n{\n  \"jobId\": \"abc-123\",\n  \"documentId\": \"xyz-456\",\n  \"status\": \"QUEUED\",\n  \"message\": \"Upload accepted. Poll /rag/jobs/abc-123 for status.\"\n}\n```\n\nJobId and DocumentId are auto-saved. Use **Get Job Status** to track progress."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Job Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/rag/jobs/{{jobId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["rag", "jobs", "{{jobId}}"]
+						},
+						"description": "Poll this endpoint to track async upload progress.\n\nWhile processing:\n```json\n{\n  \"status\": \"PROCESSING\",\n  \"totalChunks\": 190,\n  \"processedChunks\": 45,\n  \"progressPercent\": 23\n}\n```\n\nWhen done:\n```json\n{\n  \"status\": \"COMPLETED\",\n  \"progressPercent\": 100\n}\n```\n\nStatus: QUEUED → PROCESSING → COMPLETED / FAILED"
 					},
 					"response": []
 				},

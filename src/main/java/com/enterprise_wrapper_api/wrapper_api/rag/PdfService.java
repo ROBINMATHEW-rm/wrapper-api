@@ -46,6 +46,39 @@ public class PdfService {
         }
     }
 
+    /**
+     * Extract text from raw bytes — used for async processing
+     * where MultipartFile is no longer available after request ends
+     */
+    public String extractTextFromBytes(byte[] fileBytes, String filename) {
+        if (fileBytes == null || fileBytes.length == 0) {
+            throw new InvalidFileException("File is empty");
+        }
+        if (filename == null || !filename.toLowerCase().endsWith(".pdf")) {
+            throw new InvalidFileException("Only PDF files are supported");
+        }
+        try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(fileBytes);
+             PDDocument document = PDDocument.load(bais)) {
+
+            if (document.getNumberOfPages() == 0) {
+                throw new InvalidFileException("PDF file is empty");
+            }
+
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(document);
+
+            if (text == null || text.trim().isEmpty()) {
+                throw new InvalidFileException("PDF contains no extractable text");
+            }
+
+            return text;
+        } catch (InvalidFileException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RagException("Failed to extract text from PDF bytes: " + e.getMessage(), e);
+        }
+    }
+
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new InvalidFileException("File is empty or null");
