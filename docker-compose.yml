@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
 
   # PostgreSQL + pgvector
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: rag-postgres
+    container_name: pgvector
     environment:
       POSTGRES_DB: rag_db
       POSTGRES_USER: postgres
@@ -15,10 +13,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rag_db"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # Ollama (local embeddings)
   ollama:
@@ -28,28 +27,28 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    restart: unless-stopped
 
   # RAG Wrapper API
   app:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: robin419/rag-wrapper-api:latest
     container_name: rag-wrapper-api
     ports:
       - "8080:8080"
     environment:
       GROQ_API_KEY: ${GROQ_API_KEY}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
-      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/rag_db
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-dummy-google-client-id}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-dummy-google-client-secret}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-dummy-github-client-id}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-dummy-github-client-secret}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://pgvector:5432/rag_db
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       OLLAMA_BASE_URL: http://ollama:11434
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC"
     depends_on:
       postgres:
         condition: service_healthy

@@ -5,4 +5,4 @@
 .vscode/
 .mvn/
 *.ps1
-src/
+target/

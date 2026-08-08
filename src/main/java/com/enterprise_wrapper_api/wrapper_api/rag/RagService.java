@@ -5,8 +5,11 @@ import com.enterprise_wrapper_api.wrapper_api.rag.exception.RagException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class RagService {
@@ -16,6 +19,9 @@ public class RagService {
     private final VectorStoreService vectorStoreService;
     private final RetrieverService retrieverService;
     private final LlamaClient llamaClient;
+
+    // Thread pool for parallel embedding generation
+    private final ExecutorService embeddingExecutor = Executors.newFixedThreadPool(5);
 
     public RagService(PdfService pdfService,
                       EmbeddingService embeddingService,
@@ -33,9 +39,9 @@ public class RagService {
         try {
             String documentId = UUID.randomUUID().toString();
             String filename = file.getOriginalFilename();
-            
+
             vectorStoreService.storeDocumentMetadata(documentId, filename);
-            
+
             String text = pdfService.extractText(file);
             List<String> chunks = pdfService.chunkText(text);
 
@@ -43,19 +49,65 @@ public class RagService {
                 throw new RagException("No chunks generated from PDF");
             }
 
-            int chunkIndex = 0;
-            for (String chunk : chunks) {
-                List<Double> embedding = embeddingService.generateEmbedding(chunk);
-                vectorStoreService.store(documentId, chunk, embedding, chunkIndex++);
+            System.out.println("Processing " + chunks.size() + " chunks in parallel batches...");
+
+            // Process in batches of 5 to avoid overwhelming Ollama
+            int batchSize = 5;
+            AtomicInteger processedCount = new AtomicInteger(0);
+
+            for (int batchStart = 0; batchStart < chunks.size(); batchStart += batchSize) {
+                int batchEnd = Math.min(batchStart + batchSize, chunks.size());
+                List<String> batch = chunks.subList(batchStart, batchEnd);
+
+                // Submit all chunks in batch concurrently
+                List<Future<EmbeddingResult>> futures = new ArrayList<>();
+                for (int i = 0; i < batch.size(); i++) {
+                    final int chunkIndex = batchStart + i;
+                    final String chunk = batch.get(i);
+                    futures.add(embeddingExecutor.submit(() -> {
+                        List<Double> embedding = embeddingService.generateEmbedding(chunk);
+                        return new EmbeddingResult(chunkIndex, chunk, embedding);
+                    }));
+                }
+
+                // Wait for batch to complete and store results
+                for (Future<EmbeddingResult> future : futures) {
+                    try {
+                        EmbeddingResult result = future.get(60, TimeUnit.SECONDS);
+                        vectorStoreService.store(documentId, result.content, result.embedding, result.index);
+                        processedCount.incrementAndGet();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RagException("Embedding interrupted: " + e.getMessage(), e);
+                    } catch (ExecutionException e) {
+                        throw new RagException("Embedding failed: " + e.getCause().getMessage(), e);
+                    } catch (TimeoutException e) {
+                        throw new RagException("Embedding timed out", e);
+                    }
+                }
+
+                System.out.println("Processed " + processedCount.get() + "/" + chunks.size() + " chunks");
             }
 
             System.out.println("Processed document: " + documentId + " with " + chunks.size() + " chunks");
             return documentId;
+
         } catch (Exception e) {
-            if (e instanceof RagException) {
-                throw e;
-            }
+            if (e instanceof RagException) throw e;
             throw new RagException("Failed to process PDF: " + e.getMessage(), e);
+        }
+    }
+
+    // Simple result holder
+    private static class EmbeddingResult {
+        final int index;
+        final String content;
+        final List<Double> embedding;
+
+        EmbeddingResult(int index, String content, List<Double> embedding) {
+            this.index = index;
+            this.content = content;
+            this.embedding = embedding;
         }
     }
 
@@ -63,28 +115,23 @@ public class RagService {
         if (question == null || question.trim().isEmpty()) {
             throw new IllegalArgumentException("Question cannot be empty");
         }
-
         if (topK <= 0 || topK > 20) {
             throw new IllegalArgumentException("topK must be between 1 and 20");
         }
-
         if (threshold != null && (threshold < 0.0 || threshold > 1.0)) {
             throw new IllegalArgumentException("Threshold must be between 0.0 and 1.0");
         }
-
         if (temperature != null && (temperature < 0.0 || temperature > 1.0)) {
             throw new IllegalArgumentException("Temperature must be between 0.0 and 1.0");
         }
 
         double temp = temperature != null ? temperature : 0.2;
 
-        // Validate document exists if specified
         if (documentId != null && !vectorStoreService.documentExists(documentId)) {
             throw new DocumentNotFoundException(documentId);
         }
 
         try {
-            // Retrieve relevant chunks with optional threshold
             List<String> relevantChunks = retrieverService.retrieveRelevantDocs(
                 question, topK, documentId, threshold
             );
@@ -93,28 +140,12 @@ public class RagService {
                 return "No relevant information found in the document(s). The question may not be related to the uploaded content, or the similarity threshold may be too high.";
             }
 
-            // Build context from retrieved chunks
             String context = String.join("\n\n", relevantChunks);
-            
-            System.out.println("=== DEBUG: Retrieved Context ===");
-            System.out.println("Number of chunks: " + relevantChunks.size());
-            System.out.println("Context length: " + context.length());
-            System.out.println("Context preview: " + context.substring(0, Math.min(200, context.length())));
-            System.out.println("================================");
-
-            // Build prompt for LLM
             String prompt = buildPrompt(question, context);
-            
-            System.out.println("=== DEBUG: Prompt ===");
-            System.out.println(prompt.substring(0, Math.min(500, prompt.length())));
-            System.out.println("=====================");
-
-            // Generate answer using LLM
             return llamaClient.generateAnswer(prompt, temp);
+
         } catch (Exception e) {
-            if (e instanceof RagException || e instanceof IllegalArgumentException) {
-                throw e;
-            }
+            if (e instanceof RagException || e instanceof IllegalArgumentException) throw e;
             throw new RagException("Failed to generate answer: " + e.getMessage(), e);
         }
     }
@@ -130,8 +161,7 @@ public class RagService {
             "- Be concise and accurate.\n" +
             "- Do not make up information that is not in the context.\n\n" +
             "Answer:",
-            context,
-            question
+            context, question
         );
     }
 
